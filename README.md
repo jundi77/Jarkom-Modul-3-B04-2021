@@ -285,8 +285,16 @@ auth_param basic credentialsttl 2 hours
 uth_param basic casesensitive on
 acl luffy proxy_auth luffybelikapalb04 # acl untuk user yang login dengan luffy
 acl zoro proxy_auth zorobelikapalb04 # acl untuk user yang login dengan zoro
-http_access allow zoro !png !jpg senin_kamis selasa_jumat_malam rabu_sabtu_pagi # zoro tidak boleh mengakses gambar dan hanya boleh mengakses untuk waktu tertentu
-http_access allow luffy senin_kamis selasa_jumat_malam rabu_sabtu_pagi # luffy hanya boleh mengakses untuk waktu tertentu
+
+# zoro tidak boleh mengakses gambar dan hanya boleh mengakses untuk waktu tertentu
+http_access allow zoro !png !jpg senin_kamis
+http_access allow zoro !png !jpg selasa_jumat_malam
+http_access allow zoro !png !jpg rabu_sabtu_pagi
+
+# luffy hanya boleh mengakses untuk waktu tertentu
+http_access allow luffy senin_kamis
+http_access allow luffy selasa_jumat_malam
+http_access allow luffy rabu_sabtu_pagi
 
 # Limit bandwidth
 delay_pools 1
@@ -303,3 +311,57 @@ zorobelikapalb04:$apr1$XxLiE8gC$7U9FLmerIw2xxYnjOSRU/0
 ```
 
 Berisi user dan password dalam MD5. Pembuatan file dilakukan dengan bantuan program `htpasswd` dengan argumen `-m` untuk password dalam MD5.
+
+
+## Setup Host Skypie (Web Server)
+
+Pada host Skypie, akan dilakukan setup untuk webserver. Dijalankan script berikut:
+```sh
+# Install apache2
+apt-get update
+apt-get install apache2
+
+# Apply config
+cp -rf /root/000-default.conf /etc/apache2/sites-enabled && \
+cp -rf /root/super.franky.b04.com /var/www && \ # Copy file untuk super.franky
+service apache2 restart
+```
+
+Adapun untuk config yang diperlukan di webserver:
+- `/root/000-default.conf`
+```
+ServerName super.franky.b04.com
+
+<VirtualHost *:80>
+    ServerName  10.9.3.69
+    Redirect    301 /   http://super.franky.b04.com
+</VirtualHost>
+
+<VirtualHost *:80>
+    ServerName super.franky.b04.com
+    ServerAdmin webmaster@localhost
+    DocumentRoot /var/www/super.franky.b04.com
+    ErrorLog ${APACHE_LOG_DIR}/error.log
+    CustomLog ${APACHE_LOG_DIR}/access.log combined
+</VirtualHost>
+```
+Config menyatakan bahwa nantinya super.franky.b04.com akan dilayani di direktori `/var/www/super.franky.b04.com`.
+
+## Setup Client Logouetown (Proxy Client)
+
+Jalankan script berikut untuk memasang lynx untuk mencoba browsing dan apply proxy:
+```sh
+# Install lynx
+apt-get update && apt-get install -y lynx
+
+# Apply proxy
+export http_proxy="http://jualbelikapal.b04.com:5000"
+```
+
+---
+
+## Kendala
+
+Kendala-kendala yang dialami adalah sebagai berikut:
+- Tidak terbiasa dengan logic http_access squid, diketahui bahwa beda line sama dengan OR, sama line sama dengan AND.
+- Paham saat DHCP server berada di router, namun agak bingung saat diletakkan di host. Diketahui ternyata memang bisa client dan server dalam satu interface.
