@@ -93,7 +93,7 @@ OPTIONS=""
 ```
 Diatur bahwa relay mendengarkan request di `eth1` dan `eth3` (Switch1 dan Switch3), lalu request dilanjutkan ke `10.9.2.4` (Jipangu).
 
-## Setup Host EniesLobby
+## Setup Host EniesLobby (DNS Server)
 
 Pada EniesLobby, akan dilakukan setup untuk DNS server. Dijalankan script berikut:
 ```sh
@@ -172,6 +172,134 @@ $TTL    604800
 @       IN      A       10.9.3.69        ; IP Skypie
 ```
 
-## Setup Host Jipangu
+## Setup Host Jipangu (DHCP Server)
 
+Pada host Jipangu, akan dilakukan setup untuk DHCP server. Dijalankan script berikut:
+```sh
+# Apply DNS EniesLobby
+echo nameserver 10.9.2.2 > /etc/resolv.conf
 
+# Install DHCP server
+apt-get update
+apt-get install -y isc-dhcp-server
+
+# Apply config DHCP server
+cp /root/dhcpd/dhcpd.conf /etc/dhcp/dhcpd.conf
+service isc-dhcp-server restart
+```
+
+Adapun untuk config yang diperlukan di DHCP server:
+- `/root/dhcpd/dhcpd.conf`
+```
+ddns-update-style none;
+option domain-name "example.org";
+option domain-name-servers ns1.example.org, ns2.example.org;
+
+default-lease-time 600;
+max-lease-time 7200;
+
+log-facility local7;
+
+### END OF SAMPLE FILE
+
+subnet 10.9.1.0 netmask 255.255.255.0 {
+#    interface eth0;
+    range 10.9.1.20 10.9.1.99;
+    range 10.9.1.150 10.9.1.169;
+    option routers 10.9.1.1;
+    option broadcast-address 10.9.1.255;
+    option domain-name-servers 10.9.2.2;
+    default-lease-time 360; #6m
+    max-lease-time 720; #12m
+}
+
+subnet 10.9.3.0 netmask 255.255.255.0 {
+#    interface eth0;
+    range 10.9.3.30 10.9.3.50;
+    option routers 10.9.3.1;
+    option broadcast-address 10.9.3.255;
+    option domain-name-servers 10.9.2.2;
+    default-lease-time 720; #12m
+    max-lease-time 7200; #120m
+}
+
+# https://unix.stackexchange.com/a/294947 Thanks for the answer!
+subnet 10.9.2.0 netmask 255.255.255.0 {
+#    interface eth0;
+    option routers 10.9.2.1;
+}
+
+# Tetapkan IP yang diberikan untuk hwaddress yang diberikan
+# Dalam config ini, hwaddress adalah milik Skypie
+host Skypie {
+    hardware ethernet 7a:48:15:2c:35:8f;
+    fixed-address 10.9.3.69;
+}
+```
+Dilakukan setup untuk tiap-tiap subnet:
+
+- `10.9.1.0`, menyesuaikan soal nomor 3 bahwa client yang melalui Switch1 mendapatkan range IP dari 10.9.1.20 - 10.9.1.99 dan 10.9.1.150 - 10.9.1.169, menggunakan DNS EniesLobby, lease time 6 menit dengan maksimal 12 menit.
+- `10.9.3.0`, menyesuaikan soal nomor 3 bahwa client yang melalui Switch1 mendapatkan range IP dari 10.9.3.30 - 10.9.1.50, menggunakan DNS EniesLobby, lease time 12 menit dengan maksimal 120 menit.
+- `10.9.2.0`, untuk config subnet yang digunakan oleh Jipangu.
+
+## Setup Host Water7 (Proxy Server)
+
+Pada host Water7, akan dilakukan setup untuk proxy server. Dijalankan script berikut:
+```sh
+# Apply DNS EniesLobby
+echo nameserver 10.9.2.2 > /etc/resolv.conf
+
+# Install squid
+apt-get install squid -y && \
+cp -rf /root/squid /etc && \ # Apply config
+service squid restart
+```
+
+Adapun untuk config yang diperlukan di proxy server:
+- `/root/squid/squid.conf`
+```
+# acl untuk definisi waktu-waktu yang diperlukan
+acl senin_kamis time MTWH 07:00-11:00
+acl selasa_jumat_malam time TWHF 17:00-23:59
+acl rabu_sabtu_pagi time WHFA 00:00-03:00
+
+# acl untuk deteksi jika sedang membuka gambar png atau jpg, dengan asumsi lowercase
+# untuk selanjutnya, jika ada kata gambar saja maka mengacu ke gambar png atau jpg
+acl png url_regex .png
+acl jpg url_regex .jpg
+
+# Jalankan proxy di port 5000
+http_port 5000
+visible_hostname Water7
+
+# Lakukan redireksi ke super.franky.b04.com jika menuju google
+acl google url_regex google.com # acl untuk deteksi jika sedang membuka google.com
+http_access deny google # tolak akses
+deny_info http://super.franky.b04.com google # arahkan ke super.franky
+
+# Konfigurasi user dan password untuk auth basic
+auth_param basic program /usr/lib/squid/basic_ncsa_auth /etc/squid/.htpasswd # letak file yang berisi user dan password
+auth_param basic children 5
+auth_param basic realm Proxy
+auth_param basic credentialsttl 2 hours
+uth_param basic casesensitive on
+acl luffy proxy_auth luffybelikapalb04 # acl untuk user yang login dengan luffy
+acl zoro proxy_auth zorobelikapalb04 # acl untuk user yang login dengan zoro
+http_access allow zoro !png !jpg senin_kamis selasa_jumat_malam rabu_sabtu_pagi # zoro tidak boleh mengakses gambar dan hanya boleh mengakses untuk waktu tertentu
+http_access allow luffy senin_kamis selasa_jumat_malam rabu_sabtu_pagi # luffy hanya boleh mengakses untuk waktu tertentu
+
+# Limit bandwidth
+delay_pools 1
+delay_class 1 1
+delay_parameters 1 10000/10000 # 10kbps
+delay_access 1 allow png # Laksanakan bandwidth jika membuka gambar png, atau ...
+delay_access 1 allow jpg # jika membuka gambar jpg
+```
+
+- `/root/squid/.htpasswd`
+```
+luffybelikapalb04:$apr1$jCZkbVoL$IhWRN0m/2WVyc1Rxt4uZ2.
+zorobelikapalb04:$apr1$XxLiE8gC$7U9FLmerIw2xxYnjOSRU/0
+```
+
+Berisi user dan password dalam MD5. Pembuatan file dilakukan dengan bantuan program `htpasswd` dengan argumen `-m` untuk password dalam MD5.
